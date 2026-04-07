@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { CalendarDate } from '@internationalized/date'
-import {
-  fetchKPIData,
-  generateSparklines,
-  KPI_META,
-  seededRand,
-} from '~/composables/useKPIData'
+import { fetchKPIData, generateSparklines, KPI_META } from '~/composables/useKPIData'
 import type { KPISnapshot, KPIValues, KPIDirection, TimeSlot } from '~/composables/useKPIData'
 
 // ---------------------------------------------------------------------------
@@ -14,7 +9,7 @@ import type { KPISnapshot, KPIValues, KPIDirection, TimeSlot } from '~/composabl
 const TIME_SLOTS: TimeSlot[] = ['8:00', '13:00', '17:00']
 
 // ---------------------------------------------------------------------------
-// Selected date helpers
+// Date helpers
 // ---------------------------------------------------------------------------
 function jsDateToCalendar(d: Date): CalendarDate {
   return new CalendarDate(d.getFullYear(), d.getMonth() + 1, d.getDate())
@@ -70,38 +65,30 @@ function fmt(v: number, unit?: string): string {
   return unit ? `${s}${unit}` : s
 }
 
-function trend(a: number, b: number): string {
-  if (b > a * 1.01) return '↑'
-  if (b < a * 0.99) return '↓'
+// ↑ = today improved vs prev, ↓ = today worsened vs prev
+function trend(todayVal: number, prevVal: number): string {
+  if (todayVal > prevVal * 1.01) return '↑'
+  if (todayVal < prevVal * 0.99) return '↓'
   return '→'
 }
 
 // ---------------------------------------------------------------------------
-// Color coding
+// Color coding — today vs prev per cell (not cross-slot range)
 // ---------------------------------------------------------------------------
-function valueColor(v: number, key: keyof KPIValues, direction: KPIDirection): string {
+function valueColor(todayVal: number, prevVal: number, direction: KPIDirection): string {
   if (direction === 'neutral') return 'text-zinc-300'
-  if (!data.value) return 'text-zinc-300'
-  const vals = TIME_SLOTS.map(s => data.value![s][key][0])
-  const min = Math.min(...vals)
-  const max = Math.max(...vals)
-  if (max === min) return 'text-zinc-300'
-  const norm = (v - min) / (max - min)
-  if (direction === 'higher-better') {
-    if (norm >= 0.7) return 'text-emerald-400'
-    if (norm <= 0.3) return 'text-red-400'
-  } else {
-    if (norm >= 0.7) return 'text-red-400'
-    if (norm <= 0.3) return 'text-emerald-400'
-  }
-  return 'text-zinc-300'
+  const delta = (todayVal - prevVal) / (Math.abs(prevVal) || 1)
+  if (Math.abs(delta) < 0.01) return 'text-zinc-300' // flat
+  const improved = direction === 'higher-better' ? delta > 0 : delta < 0
+  return improved ? 'text-emerald-400' : 'text-red-400'
 }
 
-function trendColor(a: number, b: number, direction: KPIDirection): string {
+function trendColor(todayVal: number, prevVal: number, direction: KPIDirection): string {
   if (direction === 'neutral') return 'text-zinc-600'
-  const t = trend(a, b)
+  const t = trend(todayVal, prevVal)
   if (t === '→') return 'text-zinc-600'
   const upIsGood = direction === 'higher-better'
+  // ↑ = today went up; green only if that's "good" for this KPI
   if (t === '↑') return upIsGood ? 'text-emerald-400' : 'text-red-400'
   return upIsGood ? 'text-red-400' : 'text-emerald-400'
 }
@@ -124,72 +111,54 @@ const visibleKPIs = computed(() =>
 )
 
 // ---------------------------------------------------------------------------
-// Sparklines — fixed-position panel near cursor
+// Row hover (for highlight only — separate from sparkline open state)
+// ---------------------------------------------------------------------------
+const hoveredRow = ref<string | null>(null)
+
+// ---------------------------------------------------------------------------
+// Sparkline — click to open, stays static, click outside / X to close
 // ---------------------------------------------------------------------------
 const SPARK_W = 420
 const SPARK_H = 90
 const PANEL_W = 480
-const PANEL_H = 210 // approximate panel total height
+const PANEL_H = 215
 
-const hoveredKPI = ref<string | null>(null)
+const activeKPI = ref<string | null>(null)
 const sparkHoveredDay = ref<number | null>(null)
-const mousePos = ref({ x: 0, y: 0 })
-const isOverPanel = ref(false)
-let hideTimer: ReturnType<typeof setTimeout> | null = null
+const clickPos = ref({ x: 0, y: 0 })
 
-const hoveredKPIMeta = computed(() =>
-  hoveredKPI.value ? KPI_META.find(k => k.key === hoveredKPI.value) ?? null : null,
+const activeKPIMeta = computed(() =>
+  activeKPI.value ? KPI_META.find(k => k.key === activeKPI.value) ?? null : null,
 )
 
-function clearHide() {
-  if (hideTimer) { clearTimeout(hideTimer); hideTimer = null }
-}
-function scheduleHide() {
-  clearHide()
-  hideTimer = setTimeout(() => {
-    if (!isOverPanel.value) {
-      hoveredKPI.value = null
-      sparkHoveredDay.value = null
-    }
-  }, 120)
+function openSparkline(key: string, e: MouseEvent) {
+  if (activeKPI.value === key) {
+    closeSparkline()
+    return
+  }
+  activeKPI.value = key
+  sparkHoveredDay.value = null
+  clickPos.value = { x: e.clientX, y: e.clientY }
 }
 
-function onRowEnter(key: string, e: MouseEvent) {
-  clearHide()
-  hoveredKPI.value = key
-  mousePos.value = { x: e.clientX, y: e.clientY }
-}
-function onRowMove(e: MouseEvent) {
-  mousePos.value = { x: e.clientX, y: e.clientY }
-}
-function onRowLeave() {
-  scheduleHide()
-}
-function onPanelEnter() {
-  clearHide()
-  isOverPanel.value = true
-}
-function onPanelLeave() {
-  isOverPanel.value = false
-  hoveredKPI.value = null
+function closeSparkline() {
+  activeKPI.value = null
   sparkHoveredDay.value = null
 }
 
-// Panel position: follow cursor, flip above if near bottom
+// Panel: centered on click X, flip above if near bottom
 const sparkPanelStyle = computed(() => {
-  const { x, y } = mousePos.value
+  const { x, y } = clickPos.value
   const half = PANEL_W / 2
-  const margin = 18
+  const margin = 16
   const winW = import.meta.client ? window.innerWidth : 1440
   const winH = import.meta.client ? window.innerHeight : 900
   const left = Math.max(half + 8, Math.min(winW - half - 8, x))
-  const top = (y + margin + PANEL_H > winH - 12)
-    ? y - PANEL_H - margin   // flip above
-    : y + margin              // below
+  const top = (y + margin + PANEL_H > winH - 12) ? y - PANEL_H - margin : y + margin
   return { left: `${left}px`, top: `${top}px` }
 })
 
-// Memoised sparkline data
+// Sparkline data cache
 const sparklineCache = computed(() => {
   if (!data.value) return {}
   const seed = calendarToSeed(selectedDate.value)
@@ -198,7 +167,7 @@ const sparklineCache = computed(() => {
   )
 })
 
-// Day labels for x-axis
+// Day labels
 const dayLabels = computed(() => {
   const base = calendarToJs(selectedDate.value)
   return Array.from({ length: 7 }, (_, i) => {
@@ -226,8 +195,7 @@ function sparkX(i: number): number { return (i / 6) * SPARK_W }
 function onSparkMouseMove(e: MouseEvent) {
   const el = e.currentTarget as SVGElement
   const rect = el.getBoundingClientRect()
-  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-  sparkHoveredDay.value = Math.round(ratio * 6)
+  sparkHoveredDay.value = Math.round(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * 6)
 }
 
 const slotSparkStyle: Record<TimeSlot, { stroke: string; opacity: string; width: string }> = {
@@ -237,16 +205,13 @@ const slotSparkStyle: Record<TimeSlot, { stroke: string; opacity: string; width:
 }
 
 // ---------------------------------------------------------------------------
-// Timestamp
+// Timestamp + stat cards
 // ---------------------------------------------------------------------------
 const formattedTime = computed(() => {
   if (!lastUpdated.value) return '—'
   return lastUpdated.value.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 })
 
-// ---------------------------------------------------------------------------
-// Summary stat cards
-// ---------------------------------------------------------------------------
 const stats = computed(() => {
   if (!data.value) return null
   const d = data.value
@@ -267,7 +232,6 @@ const stats = computed(() => {
     <!-- HEADER                                                               -->
     <!-- ================================================================== -->
     <header class="shrink-0 flex items-center justify-between gap-6 px-8 py-4 border-b border-zinc-800 bg-zinc-950">
-
       <div class="flex items-center gap-5">
         <div class="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0">
           <UIcon name="i-heroicons-bolt" class="w-5 h-5 text-white" />
@@ -312,16 +276,8 @@ const stats = computed(() => {
         </div>
 
         <div class="w-px h-5 bg-zinc-800" />
-
         <span class="text-xs text-zinc-600 font-mono hidden md:block">{{ formattedTime }}</span>
-        <UButton
-          icon="i-heroicons-arrow-path"
-          size="sm"
-          color="neutral"
-          variant="outline"
-          :loading="isRefreshing"
-          @click="refresh(true)"
-        >
+        <UButton icon="i-heroicons-arrow-path" size="sm" color="neutral" variant="outline" :loading="isRefreshing" @click="refresh(true)">
           Refresh
         </UButton>
       </div>
@@ -338,9 +294,7 @@ const stats = computed(() => {
         </div>
         <div>
           <p class="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">Active Fleet</p>
-          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">
-            {{ stats ? stats.active.toLocaleString() : '—' }}
-          </p>
+          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">{{ stats ? stats.active.toLocaleString() : '—' }}</p>
         </div>
         <span class="ml-auto text-xs text-emerald-400 self-start mt-1">17:00</span>
       </div>
@@ -351,9 +305,7 @@ const stats = computed(() => {
         </div>
         <div>
           <p class="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">Avg Battery</p>
-          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">
-            {{ stats ? stats.battery.toFixed(1) + '%' : '—' }}
-          </p>
+          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">{{ stats ? stats.battery.toFixed(1) + '%' : '—' }}</p>
         </div>
         <span class="ml-auto text-xs text-blue-400 self-start mt-1">Day avg</span>
       </div>
@@ -364,9 +316,7 @@ const stats = computed(() => {
         </div>
         <div>
           <p class="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">Issues</p>
-          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">
-            {{ stats ? stats.issues.toLocaleString() : '—' }}
-          </p>
+          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">{{ stats ? stats.issues.toLocaleString() : '—' }}</p>
         </div>
         <span class="ml-auto text-xs text-red-400 self-start mt-1">17:00</span>
       </div>
@@ -377,9 +327,7 @@ const stats = computed(() => {
         </div>
         <div>
           <p class="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">Fuel Low</p>
-          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">
-            {{ stats ? stats.fuelLow.toLocaleString() : '—' }}
-          </p>
+          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">{{ stats ? stats.fuelLow.toLocaleString() : '—' }}</p>
         </div>
         <span class="ml-auto text-xs text-amber-400 self-start mt-1">17:00</span>
       </div>
@@ -409,17 +357,12 @@ const stats = computed(() => {
         </div>
 
         <!-- Table body -->
-        <div class="flex-1 min-h-0 relative" style="overflow: visible;">
+        <div class="flex-1 min-h-0 relative overflow-visible">
           <div v-if="data" class="absolute inset-0 flex flex-col">
-
             <Transition name="fade" mode="out-in">
 
               <!-- Empty state -->
-              <div
-                v-if="alertsOnly && visibleKPIs.length === 0"
-                key="empty"
-                class="flex-1 flex flex-col items-center justify-center gap-4"
-              >
+              <div v-if="alertsOnly && visibleKPIs.length === 0" key="empty" class="flex-1 flex flex-col items-center justify-center gap-4">
                 <div class="w-14 h-14 rounded-full bg-emerald-500/15 flex items-center justify-center">
                   <UIcon name="i-heroicons-check-badge" class="w-7 h-7 text-emerald-400" />
                 </div>
@@ -428,28 +371,31 @@ const stats = computed(() => {
               </div>
 
               <!-- KPI rows -->
-              <div v-else key="rows" class="flex-1 flex flex-col" style="overflow: visible;">
-                <TransitionGroup name="row" tag="div" class="flex-1 flex flex-col" style="overflow: visible;">
+              <div v-else key="rows" class="flex-1 flex flex-col overflow-visible">
+                <TransitionGroup name="row" tag="div" class="flex-1 flex flex-col overflow-visible">
                   <div
                     v-for="(kpi, idx) in visibleKPIs"
                     :key="kpi.key"
-                    class="relative flex-1 min-h-0"
-                    style="overflow: visible;"
-                    @mouseenter="onRowEnter(kpi.key, $event)"
-                    @mousemove="onRowMove"
-                    @mouseleave="onRowLeave"
+                    class="relative flex-1 min-h-0 overflow-visible"
+                    @mouseenter="hoveredRow = kpi.key"
+                    @mouseleave="hoveredRow = null"
+                    @click="openSparkline(kpi.key, $event)"
                   >
                     <div
                       :class="[
-                        'h-full grid grid-cols-[220px_repeat(3,1fr)] border-b border-zinc-800 last:border-b-0 transition-colors cursor-default',
+                        'h-full grid grid-cols-[220px_repeat(3,1fr)] border-b border-zinc-800 last:border-b-0 transition-colors cursor-pointer select-none',
                         idx % 2 !== 0 ? 'bg-zinc-800/20' : '',
-                        hoveredKPI === kpi.key ? 'bg-zinc-800/40' : '',
+                        activeKPI === kpi.key ? 'bg-emerald-950/30 ring-1 ring-inset ring-emerald-800/50' : hoveredRow === kpi.key ? 'bg-zinc-800/40' : '',
                       ]"
                     >
-                      <!-- KPI label -->
+                      <!-- Label -->
                       <div class="flex items-center px-5 border-r border-zinc-800 gap-3">
+                        <UIcon
+                          name="i-heroicons-chart-bar"
+                          :class="['w-3.5 h-3.5 shrink-0 transition-colors', activeKPI === kpi.key ? 'text-emerald-400' : 'text-zinc-700']"
+                        />
                         <UTooltip :text="kpi.direction === 'higher-better' ? 'Higher is better' : kpi.direction === 'lower-better' ? 'Lower is better' : 'Neutral'">
-                          <span class="text-base font-semibold text-zinc-200 truncate cursor-default">{{ kpi.label }}</span>
+                          <span class="text-base font-semibold text-zinc-200 truncate">{{ kpi.label }}</span>
                         </UTooltip>
                         <span v-if="kpi.unit" class="text-xs text-zinc-600 shrink-0">{{ kpi.unit }}</span>
                         <span
@@ -461,16 +407,14 @@ const stats = computed(() => {
                       <!-- Slot cells -->
                       <template v-for="slot in TIME_SLOTS" :key="`${kpi.key}-${slot}`">
                         <div class="flex items-center justify-between px-5 border-r border-zinc-800 last:border-r-0">
-                          <!-- Prev: left, subdued -->
                           <span class="text-xl tabular-nums text-zinc-500 font-medium">
                             {{ fmt(data[slot][kpi.key][1], kpi.unit) }}
                           </span>
-                          <!-- Today: right, colored + trend -->
                           <div class="flex items-center gap-2">
-                            <span :class="['text-sm', trendColor(data[slot][kpi.key][0], data[slot][kpi.key][1], kpi.direction)]">
+                            <span :class="['text-base font-bold', trendColor(data[slot][kpi.key][0], data[slot][kpi.key][1], kpi.direction)]">
                               {{ trend(data[slot][kpi.key][0], data[slot][kpi.key][1]) }}
                             </span>
-                            <span :class="['text-xl tabular-nums font-bold', valueColor(data[slot][kpi.key][0], kpi.key, kpi.direction)]">
+                            <span :class="['text-xl tabular-nums font-bold', valueColor(data[slot][kpi.key][0], data[slot][kpi.key][1], kpi.direction)]">
                               {{ fmt(data[slot][kpi.key][0], kpi.unit) }}
                             </span>
                           </div>
@@ -506,30 +450,40 @@ const stats = computed(() => {
 
       <!-- Legend -->
       <div class="mt-2.5 flex items-center gap-6 text-xs text-zinc-600">
-        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 inline-block" /><span>Good</span></div>
-        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-400 inline-block" /><span>Needs attention</span></div>
-        <div class="flex items-center gap-1.5"><span class="font-mono text-zinc-500">↑↓→</span><span>Today vs Prev</span></div>
-        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-400 inline-block" /><span>Alert dot = 17:00 deterioration</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 inline-block" /><span>Improved vs prev</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-400 inline-block" /><span>Worsened vs prev</span></div>
+        <div class="flex items-center gap-1.5"><span class="font-mono text-zinc-500">↑↓</span><span>Value direction (today vs prev)</span></div>
+        <div class="flex items-center gap-1.5">
+          <UIcon name="i-heroicons-chart-bar" class="w-3 h-3 text-zinc-500" />
+          <span>Click row to open sparkline</span>
+        </div>
         <div class="ml-auto text-zinc-700">Prototype · 06 Mar 2026 baseline</div>
       </div>
     </div>
 
     <!-- ================================================================== -->
-    <!-- SPARKLINE PANEL — Teleported to body, follows cursor                -->
+    <!-- SPARKLINE — click-anchored, static panel, click-outside to close    -->
     <!-- ================================================================== -->
     <Teleport to="body">
+      <!-- Backdrop: click anywhere outside to close -->
+      <div
+        v-if="activeKPI"
+        class="fixed inset-0 z-[9998]"
+        @click="closeSparkline"
+      />
+
+      <!-- Panel -->
       <Transition name="spark">
         <div
-          v-if="hoveredKPIMeta && data && sparklineCache[hoveredKPIMeta.key]"
+          v-if="activeKPIMeta && data && sparklineCache[activeKPIMeta.key]"
           class="fixed z-[9999] bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl px-5 pt-4 pb-3"
           :style="{ ...sparkPanelStyle, width: `${PANEL_W}px`, transform: 'translateX(-50%)' }"
-          @mouseenter="onPanelEnter"
-          @mouseleave="onPanelLeave"
+          @click.stop
         >
-          <!-- Header -->
+          <!-- Header + close -->
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
-              {{ hoveredKPIMeta.label }} · últimos 7 días
+              {{ activeKPIMeta.label }} · últimos 7 días
             </span>
             <div class="flex items-center gap-4">
               <span
@@ -537,30 +491,32 @@ const stats = computed(() => {
                 :key="s"
                 class="text-[10px] text-zinc-500 flex items-center gap-1.5"
               >
-                <span
-                  class="inline-block w-5 h-px rounded"
-                  :style="{ background: slotSparkStyle[s].stroke, opacity: slotSparkStyle[s].opacity }"
-                />
+                <span class="inline-block w-5 h-px rounded" :style="{ background: slotSparkStyle[s].stroke, opacity: slotSparkStyle[s].opacity }" />
                 {{ s }}
               </span>
+              <button
+                class="w-5 h-5 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-colors ml-1"
+                @click="closeSparkline"
+              >
+                <UIcon name="i-heroicons-x-mark" class="w-3 h-3 text-zinc-400" />
+              </button>
             </div>
           </div>
 
-          <!-- Hover values row -->
+          <!-- Hover values -->
           <div class="flex items-center gap-4 mb-1.5 h-5">
             <template v-if="sparkHoveredDay !== null">
-              <span class="text-xs font-semibold text-zinc-400 w-7 shrink-0">
-                {{ dayLabels[sparkHoveredDay] }}
-              </span>
+              <span class="text-xs font-semibold text-zinc-400 w-7 shrink-0">{{ dayLabels[sparkHoveredDay] }}</span>
               <span
-                v-for="series in sparklineCache[hoveredKPIMeta.key]"
+                v-for="series in sparklineCache[activeKPIMeta.key]"
                 :key="series.slot"
                 class="text-sm font-bold tabular-nums"
                 :style="{ color: slotSparkStyle[series.slot].stroke, opacity: slotSparkStyle[series.slot].opacity }"
               >
-                {{ fmt(series.values[sparkHoveredDay], hoveredKPIMeta.unit) }}
+                {{ fmt(series.values[sparkHoveredDay], activeKPIMeta.unit) }}
               </span>
             </template>
+            <span v-else class="text-[10px] text-zinc-600">Hover a day to see values</span>
           </div>
 
           <!-- SVG -->
@@ -572,18 +528,14 @@ const stats = computed(() => {
             @mousemove="onSparkMouseMove"
             @mouseleave="sparkHoveredDay = null"
           >
-            <!-- Grid lines -->
             <line :x1="0" :y1="SPARK_H * 0.15" :x2="SPARK_W" :y2="SPARK_H * 0.15" stroke="#3f3f46" stroke-width="0.5" />
             <line :x1="0" :y1="SPARK_H * 0.5"  :x2="SPARK_W" :y2="SPARK_H * 0.5"  stroke="#3f3f46" stroke-width="0.5" />
             <line :x1="0" :y1="SPARK_H * 0.85" :x2="SPARK_W" :y2="SPARK_H * 0.85" stroke="#3f3f46" stroke-width="0.5" />
 
-            <!-- Hover highlight column -->
             <rect
               v-if="sparkHoveredDay !== null"
               :x="sparkX(sparkHoveredDay) - SPARK_W / 12"
-              y="0"
-              :width="SPARK_W / 6"
-              :height="SPARK_H"
+              y="0" :width="SPARK_W / 6" :height="SPARK_H"
               fill="#ffffff" fill-opacity="0.04" rx="2"
             />
             <line
@@ -593,9 +545,8 @@ const stats = computed(() => {
               stroke="#52525b" stroke-width="1" stroke-dasharray="3,2"
             />
 
-            <!-- Lines -->
             <polyline
-              v-for="series in sparklineCache[hoveredKPIMeta.key]"
+              v-for="series in sparklineCache[activeKPIMeta.key]"
               :key="series.slot"
               :points="sparkPoints(series.values)"
               fill="none"
@@ -606,39 +557,32 @@ const stats = computed(() => {
               stroke-linejoin="round"
             />
 
-            <!-- Dots: hovered or last -->
             <template v-if="sparkHoveredDay !== null">
               <circle
-                v-for="series in sparklineCache[hoveredKPIMeta.key]"
+                v-for="series in sparklineCache[activeKPIMeta.key]"
                 :key="`hdot-${series.slot}`"
                 :cx="sparkX(sparkHoveredDay)"
                 :cy="sparkY(series.values, sparkHoveredDay)"
-                r="5"
-                :fill="slotSparkStyle[series.slot].stroke"
+                r="5" :fill="slotSparkStyle[series.slot].stroke"
                 :fill-opacity="slotSparkStyle[series.slot].opacity"
                 stroke="#18181b" stroke-width="2"
               />
             </template>
             <template v-else>
               <circle
-                v-for="series in sparklineCache[hoveredKPIMeta.key]"
+                v-for="series in sparklineCache[activeKPIMeta.key]"
                 :key="`dot-${series.slot}`"
-                :cx="sparkX(6)"
-                :cy="sparkY(series.values, 6)"
-                r="3.5"
-                :fill="slotSparkStyle[series.slot].stroke"
+                :cx="sparkX(6)" :cy="sparkY(series.values, 6)"
+                r="3.5" :fill="slotSparkStyle[series.slot].stroke"
                 :fill-opacity="slotSparkStyle[series.slot].opacity"
               />
             </template>
 
-            <!-- X axis -->
             <text
               v-for="(label, i) in dayLabels"
               :key="`lbl-${i}`"
-              :x="sparkX(i)"
-              :y="SPARK_H + 14"
-              text-anchor="middle"
-              font-size="10"
+              :x="sparkX(i)" :y="SPARK_H + 14"
+              text-anchor="middle" font-size="10"
               :fill="sparkHoveredDay === i ? '#a1a1aa' : '#52525b'"
               :font-weight="sparkHoveredDay === i ? '600' : '400'"
             >{{ label }}</text>
@@ -656,11 +600,11 @@ const stats = computed(() => {
 
 .row-enter-active { transition: all 0.25s ease; }
 .row-leave-active { transition: all 0.2s ease; position: absolute; width: 100%; }
-.row-enter-from { opacity: 0; transform: translateY(-6px); }
-.row-leave-to   { opacity: 0; transform: translateY(-6px); }
+.row-enter-from   { opacity: 0; transform: translateY(-6px); }
+.row-leave-to     { opacity: 0; transform: translateY(-6px); }
 
-.spark-enter-active { transition: opacity 0.12s ease, transform 0.12s ease; }
-.spark-leave-active { transition: opacity 0.08s ease, transform 0.08s ease; }
-.spark-enter-from   { opacity: 0; transform: translateX(-50%) translateY(-4px); }
-.spark-leave-to     { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+.spark-enter-active { transition: opacity 0.15s ease, transform 0.15s ease; }
+.spark-leave-active { transition: opacity 0.1s ease, transform 0.1s ease; }
+.spark-enter-from   { opacity: 0; transform: translateX(-50%) scale(0.97); }
+.spark-leave-to     { opacity: 0; transform: translateX(-50%) scale(0.97); }
 </style>
