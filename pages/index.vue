@@ -136,7 +136,14 @@ const visibleKPIs = computed(() =>
 // ---------------------------------------------------------------------------
 // Sparklines
 // ---------------------------------------------------------------------------
+const SPARK_W = 420
+const SPARK_H = 84
+
 const hoveredKPI = ref<string | null>(null)
+const sparkHoveredDay = ref<number | null>(null)
+
+// Reset hovered day when sparkline closes
+watch(hoveredKPI, () => { sparkHoveredDay.value = null })
 
 // Memoised sparkline series per KPI key (recomputed when data changes)
 const sparklineCache = computed(() => {
@@ -157,19 +164,34 @@ const dayLabels = computed(() => {
   })
 })
 
-// SVG polyline point string from a series of values
-function sparkPoints(values: number[], w: number, h: number): string {
-  const padV = 6
+// Y coordinate of a single value within a series
+function sparkY(values: number[], idx: number): number {
+  const padV = 8
+  const chartH = SPARK_H - padV * 2
   const min = Math.min(...values)
   const max = Math.max(...values)
   const range = max - min || 1
+  return chartH - ((values[idx] - min) / range) * chartH + padV
+}
+
+// Full polyline points string
+function sparkPoints(values: number[]): string {
   return values
-    .map((v, i) => {
-      const x = (i / (values.length - 1)) * w
-      const y = (h - padV * 2) - ((v - min) / range) * (h - padV * 2) + padV
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    })
+    .map((v, i) => `${((i / 6) * SPARK_W).toFixed(1)},${sparkY(values, i).toFixed(1)}`)
     .join(' ')
+}
+
+// X position for a day index
+function sparkX(i: number): number {
+  return (i / 6) * SPARK_W
+}
+
+// Handle mouse move over SVG — snap to nearest column
+function onSparkMouseMove(e: MouseEvent) {
+  const el = e.currentTarget as SVGElement
+  const rect = el.getBoundingClientRect()
+  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  sparkHoveredDay.value = Math.round(ratio * 6)
 }
 
 // Slot style: different emerald opacity + thickness
@@ -467,15 +489,15 @@ const stats = computed(() => {
                       </template>
                     </div>
 
-                    <!-- Sparkline panel — appears on hover, overlaid absolutely -->
+                    <!-- Sparkline panel — fixed width, centered, overlaid -->
                     <Transition name="spark">
                       <div
                         v-if="hoveredKPI === kpi.key && sparklineCache[kpi.key]"
-                        class="absolute left-0 right-0 z-50 bg-zinc-900/95 backdrop-blur-sm border border-zinc-700 rounded-xl shadow-2xl mx-1 px-4 pt-2 pb-3"
-                        style="top: calc(100% + 2px);"
+                        class="absolute z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl px-4 pt-3 pb-2"
+                        style="top: calc(100% + 4px); left: 50%; transform: translateX(-50%); width: 480px;"
                       >
-                        <!-- Spark header -->
-                        <div class="flex items-center justify-between mb-1.5">
+                        <!-- Header: label + legend -->
+                        <div class="flex items-center justify-between mb-2">
                           <span class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
                             {{ kpi.label }} · últimos 7 días
                           </span>
@@ -483,10 +505,10 @@ const stats = computed(() => {
                             <span
                               v-for="s in TIME_SLOTS"
                               :key="s"
-                              class="text-[9px] text-zinc-500 flex items-center gap-1"
+                              class="text-[9px] text-zinc-500 flex items-center gap-1.5"
                             >
                               <span
-                                class="inline-block w-4 h-0.5 rounded"
+                                class="inline-block w-5 h-px rounded"
                                 :style="{ background: slotSparkStyle[s].stroke, opacity: slotSparkStyle[s].opacity }"
                               />
                               {{ s }}
@@ -494,36 +516,66 @@ const stats = computed(() => {
                           </div>
                         </div>
 
-                        <!-- SVG sparkline -->
-                        <svg
-                          width="100%"
-                          height="72"
-                          viewBox="0 0 600 72"
-                          preserveAspectRatio="none"
-                          class="overflow-visible"
-                        >
-                          <!-- Subtle horizontal grid lines -->
-                          <line x1="0" y1="12" x2="600" y2="12" stroke="#3f3f46" stroke-width="0.5" />
-                          <line x1="0" y1="36" x2="600" y2="36" stroke="#3f3f46" stroke-width="0.5" />
-                          <line x1="0" y1="60" x2="600" y2="60" stroke="#3f3f46" stroke-width="0.5" />
+                        <!-- Hover values row: always reserves height to prevent jump -->
+                        <div class="flex items-center gap-3 mb-1 h-4">
+                          <template v-if="sparkHoveredDay !== null">
+                            <span class="text-[10px] font-semibold text-zinc-400 w-6 shrink-0">
+                              {{ dayLabels[sparkHoveredDay] }}
+                            </span>
+                            <span
+                              v-for="series in sparklineCache[kpi.key]"
+                              :key="series.slot"
+                              class="text-[11px] font-semibold tabular-nums"
+                              :style="{ color: slotSparkStyle[series.slot].stroke, opacity: slotSparkStyle[series.slot].opacity }"
+                            >
+                              {{ fmt(series.values[sparkHoveredDay], kpi.unit) }}
+                            </span>
+                          </template>
+                        </div>
 
-                          <!-- Day separators -->
-                          <line
-                            v-for="(_, i) in dayLabels"
-                            :key="`sep-${i}`"
-                            :x1="(i / 6) * 600"
-                            y1="0"
-                            :x2="(i / 6) * 600"
-                            y2="60"
-                            stroke="#27272a"
-                            stroke-width="1"
+                        <!-- SVG: fixed viewBox, no stretching -->
+                        <svg
+                          :width="SPARK_W"
+                          :height="SPARK_H + 14"
+                          :viewBox="`0 0 ${SPARK_W} ${SPARK_H + 14}`"
+                          class="block mx-auto overflow-visible cursor-crosshair"
+                          @mousemove="onSparkMouseMove"
+                          @mouseleave="sparkHoveredDay = null"
+                        >
+                          <!-- Horizontal grid lines -->
+                          <line :x1="0" :y1="SPARK_H * 0.15" :x2="SPARK_W" :y2="SPARK_H * 0.15" stroke="#3f3f46" stroke-width="0.5" />
+                          <line :x1="0" :y1="SPARK_H * 0.5"  :x2="SPARK_W" :y2="SPARK_H * 0.5"  stroke="#3f3f46" stroke-width="0.5" />
+                          <line :x1="0" :y1="SPARK_H * 0.85" :x2="SPARK_W" :y2="SPARK_H * 0.85" stroke="#3f3f46" stroke-width="0.5" />
+
+                          <!-- Hover column highlight -->
+                          <rect
+                            v-if="sparkHoveredDay !== null"
+                            :x="sparkX(sparkHoveredDay) - SPARK_W / 12"
+                            y="0"
+                            :width="SPARK_W / 6"
+                            :height="SPARK_H"
+                            fill="#ffffff"
+                            fill-opacity="0.03"
+                            rx="2"
                           />
 
-                          <!-- Sparklines per slot -->
+                          <!-- Hover vertical line -->
+                          <line
+                            v-if="sparkHoveredDay !== null"
+                            :x1="sparkX(sparkHoveredDay)"
+                            y1="0"
+                            :x2="sparkX(sparkHoveredDay)"
+                            :y2="SPARK_H"
+                            stroke="#52525b"
+                            stroke-width="1"
+                            stroke-dasharray="3,2"
+                          />
+
+                          <!-- Lines per slot -->
                           <polyline
                             v-for="series in sparklineCache[kpi.key]"
                             :key="series.slot"
-                            :points="sparkPoints(series.values, 600, 60)"
+                            :points="sparkPoints(series.values)"
                             fill="none"
                             :stroke="slotSparkStyle[series.slot].stroke"
                             :stroke-width="slotSparkStyle[series.slot].width"
@@ -532,26 +584,42 @@ const stats = computed(() => {
                             stroke-linejoin="round"
                           />
 
-                          <!-- Dot on last point for each series -->
-                          <circle
-                            v-for="series in sparklineCache[kpi.key]"
-                            :key="`dot-${series.slot}`"
-                            cx="600"
-                            :cy="parseFloat(sparkPoints(series.values, 600, 60).split(' ').at(-1)!.split(',')[1])"
-                            r="3"
-                            :fill="slotSparkStyle[series.slot].stroke"
-                            :fill-opacity="slotSparkStyle[series.slot].opacity"
-                          />
+                          <!-- Dots: hovered day or last point -->
+                          <template v-if="sparkHoveredDay !== null">
+                            <circle
+                              v-for="series in sparklineCache[kpi.key]"
+                              :key="`hdot-${series.slot}`"
+                              :cx="sparkX(sparkHoveredDay)"
+                              :cy="sparkY(series.values, sparkHoveredDay)"
+                              r="4"
+                              :fill="slotSparkStyle[series.slot].stroke"
+                              :fill-opacity="slotSparkStyle[series.slot].opacity"
+                              stroke="#18181b"
+                              stroke-width="1.5"
+                            />
+                          </template>
+                          <template v-else>
+                            <circle
+                              v-for="series in sparklineCache[kpi.key]"
+                              :key="`dot-${series.slot}`"
+                              :cx="sparkX(6)"
+                              :cy="sparkY(series.values, 6)"
+                              r="3"
+                              :fill="slotSparkStyle[series.slot].stroke"
+                              :fill-opacity="slotSparkStyle[series.slot].opacity"
+                            />
+                          </template>
 
                           <!-- X axis day labels -->
                           <text
                             v-for="(label, i) in dayLabels"
                             :key="`lbl-${i}`"
-                            :x="(i / 6) * 600"
-                            y="71"
+                            :x="sparkX(i)"
+                            :y="SPARK_H + 12"
                             text-anchor="middle"
                             font-size="9"
-                            fill="#71717a"
+                            :fill="sparkHoveredDay === i ? '#a1a1aa' : '#52525b'"
+                            :font-weight="sparkHoveredDay === i ? '600' : '400'"
                           >{{ label }}</text>
                         </svg>
                       </div>
