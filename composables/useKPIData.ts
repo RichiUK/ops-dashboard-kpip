@@ -27,7 +27,7 @@ export type KPISnapshot = Record<TimeSlot, KPIValues>
 // ---------------------------------------------------------------------------
 // Baseline values (from whiteboard photo, 06 March 2026)
 // ---------------------------------------------------------------------------
-const BASELINE: KPISnapshot = {
+export const BASELINE: KPISnapshot = {
   '8:00': {
     basicService: [980, 1041],
     damaged: [239, 193],
@@ -66,33 +66,91 @@ const BASELINE: KPISnapshot = {
   },
 }
 
-// Jitter a value by ±10% for simulated refresh
-function jitter(v: number): number {
-  const factor = 1 + (Math.random() * 0.2 - 0.1)
-  return Math.round(v * factor * 10) / 10
+// ---------------------------------------------------------------------------
+// Seeded pseudo-random (LCG) — same date string always produces same data
+// ---------------------------------------------------------------------------
+export function seededRand(seed: string): () => number {
+  // FNV-1a hash → xorshift32 (always unsigned, always in [0,1))
+  let state = 2166136261 >>> 0
+  for (let i = 0; i < seed.length; i++) {
+    state = (state ^ seed.charCodeAt(i)) >>> 0
+    state = Math.imul(state, 16777619) >>> 0
+  }
+  if (state === 0) state = 1
+  return () => {
+    state ^= state << 13; state >>>= 0
+    state ^= state >>> 17; state >>>= 0
+    state ^= state << 5;  state >>>= 0
+    return state / 4294967296
+  }
 }
 
-function jitterSlot(slot: KPIValues): KPIValues {
+function jitterWith(v: number, rand: () => number, pct = 0.10): number {
+  const factor = 1 + (rand() * 2 - 1) * pct
+  const result = v * factor
+  // Preserve integer nature of integer inputs
+  return Number.isInteger(v) ? Math.round(result) : Math.round(result * 10) / 10
+}
+
+function jitterSlotWith(slot: KPIValues, rand: () => number): KPIValues {
   return Object.fromEntries(
-    Object.entries(slot).map(([k, [a, b]]) => [k, [jitter(a), jitter(b)]]),
+    Object.entries(slot).map(([k, [a, b]]) => [k, [jitterWith(a, rand), jitterWith(b, rand)]]),
   ) as KPIValues
 }
 
 // ---------------------------------------------------------------------------
 // fetchKPIData — swap this body for a real API call when ready
 // ---------------------------------------------------------------------------
-export async function fetchKPIData(randomize = false): Promise<KPISnapshot> {
+export async function fetchKPIData(dateSeed?: string): Promise<KPISnapshot> {
   // --- REAL API INTEGRATION POINT ---
   // return await $fetch<KPISnapshot>('/api/kpi/latest')
   // ----------------------------------
 
-  if (!randomize) return BASELINE
+  if (!dateSeed) return BASELINE
 
+  const rand = seededRand(dateSeed)
   return {
-    '8:00': jitterSlot(BASELINE['8:00']),
-    '13:00': jitterSlot(BASELINE['13:00']),
-    '17:00': jitterSlot(BASELINE['17:00']),
+    '8:00': jitterSlotWith(BASELINE['8:00'], rand),
+    '13:00': jitterSlotWith(BASELINE['13:00'], rand),
+    '17:00': jitterSlotWith(BASELINE['17:00'], rand),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Historical data for sparklines (7 days, 3 time slots per day)
+// Seeded per KPI key + date so it's stable across refreshes
+// ---------------------------------------------------------------------------
+export interface SparkSeries {
+  slot: TimeSlot
+  values: number[] // 7 values, oldest → newest
+}
+
+export function generateSparklines(
+  key: keyof KPIValues,
+  todayData: KPISnapshot,
+  todaySeed: string,
+): SparkSeries[] {
+  const slots: TimeSlot[] = ['8:00', '13:00', '17:00']
+
+  return slots.map((slot) => {
+    const todayVal = todayData[slot][key][0]
+    // Build 7-day series ending at today's value, ±15% oscillation
+    const rand = seededRand(`${key}-${slot}-${todaySeed}`)
+    const values: number[] = []
+
+    // Work backwards from todayVal, introducing a smooth walk
+    let v = todayVal
+    const raw = [v]
+    for (let i = 1; i < 7; i++) {
+      const delta = (rand() * 2 - 1) * 0.15
+      v = v * (1 + delta)
+      if (v <= 0) v = todayVal * 0.1
+      raw.unshift(Math.round(v * 10) / 10)
+    }
+    values.push(...raw)
+
+    return { slot, values }
+  })
 }
 
 // ---------------------------------------------------------------------------
