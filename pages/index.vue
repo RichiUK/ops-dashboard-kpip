@@ -391,10 +391,6 @@ const stats = computed(() => {
                     >
                       <!-- Label -->
                       <div class="flex items-center px-5 border-r border-zinc-800 gap-3">
-                        <UIcon
-                          name="i-heroicons-chart-bar"
-                          :class="['w-3.5 h-3.5 shrink-0 transition-colors', activeKPI === kpi.key ? 'text-emerald-400' : 'text-zinc-700']"
-                        />
                         <UTooltip :text="kpi.direction === 'higher-better' ? 'Higher is better' : kpi.direction === 'lower-better' ? 'Lower is better' : 'Neutral'">
                           <span class="text-base font-semibold text-zinc-200 truncate">{{ kpi.label }}</span>
                         </UTooltip>
