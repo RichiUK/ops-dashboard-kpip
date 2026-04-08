@@ -234,12 +234,8 @@ const stats = computed(() => {
     <!-- ================================================================== -->
     <header class="shrink-0 flex items-center justify-between gap-6 px-8 py-4 border-b border-zinc-800 bg-zinc-950">
       <div class="flex items-center gap-5">
-        <div class="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0">
-          <UIcon name="i-heroicons-bolt" class="w-5 h-5 text-white" />
-        </div>
         <div>
           <h1 class="text-base font-bold text-zinc-50 leading-tight">Fleet Operations KPIs</h1>
-          <p class="text-xs text-zinc-500">HumanForest · Supervisor Dashboard</p>
         </div>
         <div class="hidden sm:flex items-center gap-2 ml-3 px-3 py-1.5 rounded-full bg-zinc-800/80 border border-zinc-700">
           <UIcon name="i-heroicons-calendar-days" class="w-3.5 h-3.5 text-zinc-400" />
@@ -400,10 +396,6 @@ const stats = computed(() => {
         <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 inline-block" /><span>Improved vs prev</span></div>
         <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-400 inline-block" /><span>Worsened vs prev</span></div>
         <div class="flex items-center gap-1.5"><span class="font-mono text-zinc-500">↑↓</span><span>Value direction (today vs prev)</span></div>
-        <div class="flex items-center gap-1.5">
-          <UIcon name="i-heroicons-chart-bar" class="w-3 h-3 text-zinc-500" />
-          <span>Click row to open sparkline</span>
-        </div>
         <div class="ml-auto text-zinc-700">Prototype · 06 Mar 2026 baseline</div>
       </div>
     </div>
