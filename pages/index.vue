@@ -65,32 +65,33 @@ function fmt(v: number, unit?: string): string {
   return unit ? `${s}${unit}` : s
 }
 
-// ↑ = today improved vs prev, ↓ = today worsened vs prev
-function trend(todayVal: number, prevVal: number): string {
-  if (todayVal > prevVal * 1.01) return '↑'
-  if (todayVal < prevVal * 0.99) return '↓'
-  return '→'
+// ---------------------------------------------------------------------------
+// Performance direction — ↑ always means "improved", ↓ always means "worsened"
+// For lower-better KPIs a rising value is bad → shows ↓ (worsened)
+// ---------------------------------------------------------------------------
+function performanceDir(todayVal: number, prevVal: number, direction: KPIDirection): '↑' | '↓' | '→' {
+  if (direction === 'neutral') return '→'
+  const delta = (todayVal - prevVal) / (Math.abs(prevVal) || 1)
+  if (Math.abs(delta) < 0.01) return '→'
+  const improved = direction === 'higher-better' ? delta > 0 : delta < 0
+  return improved ? '↑' : '↓'
+}
+
+function perfColor(todayVal: number, prevVal: number, direction: KPIDirection): string {
+  const dir = performanceDir(todayVal, prevVal, direction)
+  if (dir === '↑') return 'text-emerald-400'
+  if (dir === '↓') return 'text-red-400'
+  return 'text-zinc-500'
 }
 
 // ---------------------------------------------------------------------------
 // Color coding — today vs prev per cell (not cross-slot range)
 // ---------------------------------------------------------------------------
 function valueColor(todayVal: number, prevVal: number, direction: KPIDirection): string {
-  if (direction === 'neutral') return 'text-zinc-300'
-  const delta = (todayVal - prevVal) / (Math.abs(prevVal) || 1)
-  if (Math.abs(delta) < 0.01) return 'text-zinc-300' // flat
-  const improved = direction === 'higher-better' ? delta > 0 : delta < 0
-  return improved ? 'text-emerald-400' : 'text-red-400'
-}
-
-function trendColor(todayVal: number, prevVal: number, direction: KPIDirection): string {
-  if (direction === 'neutral') return 'text-zinc-600'
-  const t = trend(todayVal, prevVal)
-  if (t === '→') return 'text-zinc-600'
-  const upIsGood = direction === 'higher-better'
-  // ↑ = today went up; green only if that's "good" for this KPI
-  if (t === '↑') return upIsGood ? 'text-emerald-400' : 'text-red-400'
-  return upIsGood ? 'text-red-400' : 'text-emerald-400'
+  const dir = performanceDir(todayVal, prevVal, direction)
+  if (dir === '↑') return 'text-emerald-400'
+  if (dir === '↓') return 'text-red-400'
+  return 'text-zinc-300'
 }
 
 // ---------------------------------------------------------------------------
@@ -411,8 +412,8 @@ const stats = computed(() => {
                             {{ fmt(data[slot][kpi.key][1], kpi.unit) }}
                           </span>
                           <div class="flex items-center gap-2">
-                            <span :class="['text-base font-bold', trendColor(data[slot][kpi.key][0], data[slot][kpi.key][1], kpi.direction)]">
-                              {{ trend(data[slot][kpi.key][0], data[slot][kpi.key][1]) }}
+                            <span :class="['text-base font-bold', perfColor(data[slot][kpi.key][0], data[slot][kpi.key][1], kpi.direction)]">
+                              {{ performanceDir(data[slot][kpi.key][0], data[slot][kpi.key][1], kpi.direction) }}
                             </span>
                             <span :class="['text-xl tabular-nums font-bold', valueColor(data[slot][kpi.key][0], data[slot][kpi.key][1], kpi.direction)]">
                               {{ fmt(data[slot][kpi.key][0], kpi.unit) }}
