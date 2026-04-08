@@ -284,56 +284,6 @@ const stats = computed(() => {
       </div>
     </header>
 
-    <!-- ================================================================== -->
-    <!-- STAT CARDS                                                           -->
-    <!-- ================================================================== -->
-    <div class="shrink-0 grid grid-cols-4 gap-4 px-8 pt-4 pb-3">
-
-      <div class="rounded-2xl bg-zinc-900 border border-zinc-800 px-5 py-4 flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-emerald-500/15 flex items-center justify-center shrink-0">
-          <UIcon name="i-heroicons-bicycle" class="w-6 h-6 text-emerald-400" />
-        </div>
-        <div>
-          <p class="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">Active Fleet</p>
-          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">{{ stats ? stats.active.toLocaleString() : '—' }}</p>
-        </div>
-        <span class="ml-auto text-xs text-emerald-400 self-start mt-1">17:00</span>
-      </div>
-
-      <div class="rounded-2xl bg-zinc-900 border border-zinc-800 px-5 py-4 flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-blue-500/15 flex items-center justify-center shrink-0">
-          <UIcon name="i-heroicons-battery-100" class="w-6 h-6 text-blue-400" />
-        </div>
-        <div>
-          <p class="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">Avg Battery</p>
-          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">{{ stats ? stats.battery.toFixed(1) + '%' : '—' }}</p>
-        </div>
-        <span class="ml-auto text-xs text-blue-400 self-start mt-1">Day avg</span>
-      </div>
-
-      <div class="rounded-2xl bg-zinc-900 border border-zinc-800 px-5 py-4 flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-red-500/15 flex items-center justify-center shrink-0">
-          <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6 text-red-400" />
-        </div>
-        <div>
-          <p class="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">Issues</p>
-          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">{{ stats ? stats.issues.toLocaleString() : '—' }}</p>
-        </div>
-        <span class="ml-auto text-xs text-red-400 self-start mt-1">17:00</span>
-      </div>
-
-      <div class="rounded-2xl bg-zinc-900 border border-zinc-800 px-5 py-4 flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
-          <UIcon name="i-heroicons-fire" class="w-6 h-6 text-amber-400" />
-        </div>
-        <div>
-          <p class="text-xs text-zinc-500 uppercase tracking-wider mb-0.5">Fuel Low</p>
-          <p class="text-3xl font-bold text-zinc-50 tabular-nums leading-none">{{ stats ? stats.fuelLow.toLocaleString() : '—' }}</p>
-        </div>
-        <span class="ml-auto text-xs text-amber-400 self-start mt-1">17:00</span>
-      </div>
-
-    </div>
 
     <!-- ================================================================== -->
     <!-- KPI TABLE                                                            -->
@@ -342,14 +292,14 @@ const stats = computed(() => {
       <div class="flex-1 min-h-0 rounded-2xl bg-zinc-900 border border-zinc-800 flex flex-col overflow-hidden">
 
         <!-- Column headers -->
-        <div class="shrink-0 grid grid-cols-[220px_repeat(3,1fr)] border-b border-zinc-800 bg-zinc-900">
-          <div class="px-5 py-3 text-xs font-semibold uppercase tracking-widest text-zinc-500 border-r border-zinc-800 flex items-center">
+        <div class="shrink-0 grid grid-cols-[220px_repeat(3,1fr)] border-b border-zinc-700/40 bg-zinc-900">
+          <div class="px-5 py-3 text-xs font-semibold uppercase tracking-widest text-zinc-500 border-r border-zinc-700/40 flex items-center">
             KPI
           </div>
           <div
             v-for="slot in TIME_SLOTS"
             :key="slot"
-            class="px-5 py-3 flex items-center justify-between border-r border-zinc-800 last:border-r-0"
+            class="px-5 py-3 flex items-center justify-between border-r border-zinc-700/40 last:border-r-0"
           >
             <span class="text-sm text-zinc-600">Prev</span>
             <span class="text-base font-bold text-emerald-400">{{ slot }}</span>
@@ -384,13 +334,13 @@ const stats = computed(() => {
                   >
                     <div
                       :class="[
-                        'h-full grid grid-cols-[220px_repeat(3,1fr)] border-b border-zinc-800 last:border-b-0 transition-colors cursor-pointer select-none',
+                        'h-full grid grid-cols-[220px_repeat(3,1fr)] border-b border-zinc-700/40 last:border-b-0 transition-colors cursor-pointer select-none',
                         idx % 2 !== 0 ? 'bg-zinc-800/20' : '',
                         activeKPI === kpi.key ? 'bg-emerald-950/30 ring-1 ring-inset ring-emerald-800/50' : hoveredRow === kpi.key ? 'bg-zinc-800/40' : '',
                       ]"
                     >
                       <!-- Label -->
-                      <div class="flex items-center px-5 border-r border-zinc-800 gap-3">
+                      <div class="flex items-center px-5 border-r border-zinc-700/40 gap-3">
                         <UTooltip :text="kpi.direction === 'higher-better' ? 'Higher is better' : kpi.direction === 'lower-better' ? 'Lower is better' : 'Neutral'">
                           <span class="text-base font-semibold text-zinc-200 truncate">{{ kpi.label }}</span>
                         </UTooltip>
@@ -403,7 +353,7 @@ const stats = computed(() => {
 
                       <!-- Slot cells -->
                       <template v-for="slot in TIME_SLOTS" :key="`${kpi.key}-${slot}`">
-                        <div class="flex items-center justify-between px-5 border-r border-zinc-800 last:border-r-0">
+                        <div class="flex items-center justify-between px-5 border-r border-zinc-700/40 last:border-r-0">
                           <span class="text-xl tabular-nums text-zinc-500 font-medium">
                             {{ fmt(data[slot][kpi.key][1], kpi.unit) }}
                           </span>
@@ -430,12 +380,12 @@ const stats = computed(() => {
             <div
               v-for="n in 10"
               :key="n"
-              :class="['flex-1 grid grid-cols-[220px_repeat(3,1fr)] border-b border-zinc-800', n % 2 !== 0 ? 'bg-zinc-800/20' : '']"
+              :class="['flex-1 grid grid-cols-[220px_repeat(3,1fr)] border-b border-zinc-700/40', n % 2 !== 0 ? 'bg-zinc-800/20' : '']"
             >
-              <div class="flex items-center px-5 border-r border-zinc-800">
+              <div class="flex items-center px-5 border-r border-zinc-700/40">
                 <div class="h-4 w-28 bg-zinc-800 rounded animate-pulse" />
               </div>
-              <div v-for="c in 3" :key="c" class="flex items-center justify-between px-5 border-r border-zinc-800 last:border-r-0">
+              <div v-for="c in 3" :key="c" class="flex items-center justify-between px-5 border-r border-zinc-700/40 last:border-r-0">
                 <div class="h-4 w-14 bg-zinc-800 rounded animate-pulse" />
                 <div class="h-4 w-16 bg-zinc-800 rounded animate-pulse" />
               </div>
